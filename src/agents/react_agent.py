@@ -22,6 +22,7 @@ parts, you may call web_search more than once in the same turn to cover each par
 before composing your final answer. If a question is fully answerable from the
 document collection, prefer rag_lookup. If it needs current/live information,
 use web_search. You can use both if genuinely helpful.
+When calling web_search, always pass exactly one argument named "query" containing your search text.
 
 Always give a clear, direct final answer after using your tools.
 """

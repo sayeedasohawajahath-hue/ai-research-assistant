@@ -17,7 +17,7 @@ st.set_page_config(page_title="AI Research & Knowledge Assistant", layout="wide"
 if "session_id" not in st.session_state:
     st.session_state.session_id = new_session_id()
 if "messages" not in st.session_state:
-    st.session_state.messages = []  # list of {"role","content","meta":{...}}
+    st.session_state.messages = []
 if "guardrail_threshold" not in st.session_state:
     st.session_state.guardrail_threshold = 0.5
 if "uploaded_pdf_name" not in st.session_state:
@@ -45,7 +45,7 @@ with tab_upload:
     st.subheader("Upload a PDF to query alongside the seed collection")
     uploaded_file = st.file_uploader("Choose a PDF", type=["pdf"])
     if uploaded_file is not None:
-        temp_path = f"/tmp/{uploaded_file.name}" if os.name != "nt" else f"uploaded_{uploaded_file.name}"
+        temp_path = f"uploaded_{uploaded_file.name}"
         with open(temp_path, "wb") as f:
             f.write(uploaded_file.getbuffer())
         with st.spinner("Indexing your PDF..."):
@@ -67,11 +67,11 @@ with tab_chat:
             if meta:
                 badges = []
                 if meta.get("guardrail_flagged"):
-                    badges.append("🚫 Guardrail flagged")
+                    badges.append("Guardrail flagged")
                 if meta.get("judge_score") is not None:
-                    badges.append(f"Faithfulness: {meta['judge_score']}/5 ✓")
+                    badges.append(f"Faithfulness: {meta['judge_score']}/5")
                 if meta.get("summarized"):
-                    badges.append("🧠 Memory summarized")
+                    badges.append("Memory summarized")
                 if badges:
                     st.caption(" | ".join(badges))
 
@@ -82,42 +82,44 @@ with tab_chat:
         with st.chat_message("user"):
             st.write(user_input)
 
-        # --- Input guardrail ---
-        with Timer() as t:
+        with Timer() as t_in:
             in_score = attack_score(user_input)
         in_flagged = in_score >= st.session_state.guardrail_threshold
-        log_event(sid, "guardrail_input", {"text": user_input, "score": in_score, "flagged": in_flagged}, t.elapsed_ms)
+        log_event(sid, "guardrail_input", {"text": user_input, "score": in_score, "flagged": in_flagged}, t_in.elapsed_ms)
 
         if in_flagged:
-            answer = "I can't process that request — it was flagged by the input guardrail as a potential prompt injection or jailbreak attempt."
+            answer = "I can't process that request - it was flagged by the input guardrail as a potential prompt injection or jailbreak attempt."
             meta = {"guardrail_flagged": True}
             with st.chat_message("assistant"):
                 st.write(answer)
-                st.caption("🚫 Guardrail flagged")
+                st.caption("Guardrail flagged")
             st.session_state.messages.append({"role": "assistant", "content": answer, "meta": meta})
         else:
-            # --- Memory / context management ---
             history_for_agent, was_summarized = get_context_for_agent(
                 [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages[:-1]]
             )
             if was_summarized:
                 log_event(sid, "memory_summarized", {"turn_count": len(st.session_state.messages)})
 
-            # --- Run the agent ---
+            agent_error = None
             with st.spinner("Thinking..."):
-                with Timer() as t:
-                    result = run_agent(user_input, history_for_agent)
-                log_event(sid, "tool_call", {"messages": str(result["messages"])}, t.elapsed_ms)
+                with Timer() as t_agent:
+                    try:
+                        result = run_agent(user_input, history_for_agent)
+                        answer = result["answer"]
+                    except Exception as e:
+                        answer = f"Sorry, I hit an error while using a tool: {e}"
+                        agent_error = str(e)
+                if agent_error:
+                    log_event(sid, "tool_call", {"error": agent_error}, t_agent.elapsed_ms)
+                else:
+                    log_event(sid, "tool_call", {"messages": str(result["messages"])}, t_agent.elapsed_ms)
 
-            answer = result["answer"]
-
-            # --- Output guardrail ---
-            with Timer() as t:
-                out_score = attack_score(answer)
+            with Timer() as t_out:
+                out_score = attack_score(answer[:2000])
             out_flagged = out_score >= st.session_state.guardrail_threshold
-            log_event(sid, "guardrail_output", {"text": answer, "score": out_score, "flagged": out_flagged}, t.elapsed_ms)
+            log_event(sid, "guardrail_output", {"text": answer, "score": out_score, "flagged": out_flagged}, t_out.elapsed_ms)
 
-           # --- Judge (best-effort: only meaningful for RAG-grounded answers) ---
             judge_score = None
             try:
                 from src.agents.tools import _upload_retriever
@@ -139,11 +141,11 @@ with tab_chat:
                 st.write(answer)
                 badges = []
                 if out_flagged:
-                    badges.append("🚫 Output guardrail flagged")
+                    badges.append("Output guardrail flagged")
                 if judge_score is not None:
-                    badges.append(f"Faithfulness: {judge_score}/5 ✓")
+                    badges.append(f"Faithfulness: {judge_score}/5")
                 if was_summarized:
-                    badges.append("🧠 Memory summarized")
+                    badges.append("Memory summarized")
                 if badges:
                     st.caption(" | ".join(badges))
 

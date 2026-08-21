@@ -45,10 +45,13 @@ def web_search(query: str) -> str:
     document collection. Can be called multiple times in one turn for
     different sub-aspects of a broad question.
     """
-    with DDGS() as ddgs:
-        results = list(ddgs.text(query, max_results=5))
+    try:
+        with DDGS() as ddgs:
+            results = list(ddgs.text(query, max_results=5))
+    except Exception as e:
+        return f"Web search temporarily failed ({e}). Try rephrasing, or answer using other available information."
     if not results:
-        return "No web results found."
+        return "No web results found for that query. Try a different phrasing."
     formatted = []
     for r in results:
         formatted.append(f"{r.get('title', '')}\n{r.get('body', '')}\nSource: {r.get('href', '')}")
