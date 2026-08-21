@@ -117,10 +117,12 @@ with tab_chat:
             out_flagged = out_score >= st.session_state.guardrail_threshold
             log_event(sid, "guardrail_output", {"text": answer, "score": out_score, "flagged": out_flagged}, t.elapsed_ms)
 
-            # --- Judge (best-effort: only meaningful for RAG-grounded answers) ---
+           # --- Judge (best-effort: only meaningful for RAG-grounded answers) ---
             judge_score = None
             try:
-                docs = get_seed_retriever().invoke(user_input)
+                from src.agents.tools import _upload_retriever
+                active_retriever = _upload_retriever if _upload_retriever is not None else get_seed_retriever()
+                docs = active_retriever.invoke(user_input)
                 context_result = answer_from_context(user_input, docs)
                 j = judge_answer(user_input, context_result["context"], answer)
                 judge_score = j["score"]
